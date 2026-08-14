@@ -1,0 +1,26 @@
+# The dsh-tui bundle patch: an interactive terminal surface over dsh-base.
+# It mounts no Host, HTTP server, or browser plugins. Two rows provide the
+# surface: `tui-startup` parses this app's flags and publishes `tuiStartup`;
+# `tui-surface` injects that service, creates/resumes an Agent through the core
+# registry, and drives it from a readline loop.
+
+# ── surface-specific values the base deliberately omits ─────────────────────
+
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+# The shared module-reload HMR row stays off; it is a Web-client lifecycle.
+- id: hmr
+  disabled: true
+
+# ── the terminal surface ────────────────────────────────────────────────────
+
+- insert:
+    - id: tui-startup
+      name: '@gitsang/dsh-tui/startup'
+
+    - id: tui-surface
+      name: '@gitsang/dsh-tui'
+      inject: [tuiStartup]
