@@ -12,10 +12,13 @@ Run [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) 
 
 | Plugin | Role |
 |---|---|
-| `tui-startup` | Injects `cmdlineArgs`, parses `--cwd` / `--resume` / initial prompt, publishes a `tuiStartup` service. |
-| `tui-surface` | Creates/resumes an `Agent` through `ctx.agents`, subscribes to the session's `session/event` log, and drives it from a readline loop. |
+| `tui-startup` | Injects `cmdlineArgs`, parses `--cwd` / `--resume` / `--raw` / initial prompt, publishes a `tuiStartup` service. |
+| `tui-surface` | Creates/resumes an `Agent` through `ctx.agents`, reduces the session's `session/event` log into a view model, and renders it. |
 
-Rendering is data-driven from the same append-only session event stream the web UI uses (`user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, …).
+There are two renderers over the same event stream:
+
+- **ink TUI** (default, on a TTY): full-screen conversation + tool-call tree, approval modal, input line, and status bar.
+- **raw** (`--raw`, or non-TTY): a plain readline loop with ANSI output.
 
 ## Prerequisites
 
@@ -45,20 +48,24 @@ dsh plugin --profile tui add .
 ```sh
 export DEEPSEEK_API_KEY=...
 
-dsh --profile tui                          # interactive session in the current directory
+dsh --profile tui                          # interactive TUI in the current directory
 dsh --profile tui "fix the failing tests"  # start with an initial task
 dsh --profile tui --resume <session-id>    # resume a previous session
 dsh --profile tui --cwd /path/to/repo      # work in a different directory
+dsh --profile tui --raw                    # plain readline/ANSI instead of the TUI
 ```
 
 ### Controls
 
 | Input | Action |
 |---|---|
-| any message | send to the agent |
+| any message + Enter | send to the agent |
 | `:help` | show commands |
 | `:quit` / `:q` | exit |
-| `Ctrl-C` | cancel the in-flight turn, or exit when idle |
+| `Ctrl-C` | cancel the running turn (or exit when idle) |
+| `y` / `n` | answer a permission prompt (approve / reject) |
+
+Permission prompts (`ctx.approval`) are answered in-terminal: the TUI registers an `approval/request` answerer and shows a modal. Raw mode has no answerer, so approvals fail closed (`unavailable`).
 
 ## Development
 
@@ -67,11 +74,12 @@ pnpm typecheck   # tsc --noEmit
 pnpm build       # emit lib/ (js + .d.ts)
 ```
 
-The dependency surface is deliberately narrow and mirrors the official `@deepseek-ai/dsh-headless` bundle: `@deepseek-ai/dsh-agent`, `-llm`, `-session`, `-agent-default-model` are peer dependencies (resolved from the `dsh` installation), and `@deepseek-ai/dsh-cmdline` is a direct dependency.
+The dependency surface mirrors the official `@deepseek-ai/dsh-headless` bundle: `@deepseek-ai/dsh-agent`, `-llm`, `-session`, `-agent-default-model` are peer dependencies (resolved from the `dsh` installation), `@deepseek-ai/dsh-cmdline` is a direct dependency, and `ink` + `react` render the TUI.
 
 ## Roadmap
 
-- [ ] Phase 1 — real TUI (ink/blessed): conversation + tool tree panes, `--raw` mode, permission prompts via `ctx.approval`
+- [x] Phase 0 — minimal interactive readline surface
+- [x] Phase 1 — ink TUI: conversation + tool tree, approval prompts, status bar, `--raw` mode
 - [ ] Phase 2 — session list / resume picker, slash commands via `ctx.commands`, fork
 - [ ] Phase 3 — publish `@gitsang/dsh-tui` to npm, add the `dsh-plugin` topic
 

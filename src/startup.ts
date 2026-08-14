@@ -26,6 +26,8 @@ export interface TuiStartupValues {
   resume?: string
   /** Optional initial prompt to run before entering the interactive loop. */
   prompt?: string
+  /** Render with the plain readline/ANSI surface instead of the ink TUI. */
+  raw: boolean
 }
 
 function tuiCommand(): Command {
@@ -35,6 +37,7 @@ function tuiCommand(): Command {
     .helpOption('-h, --help', 'show this help')
     .option('--cwd <path>', 'working directory for the agent (default: current directory)')
     .option('--resume <session>', 'resume an existing session by id')
+    .option('--raw', 'use the plain readline/ANSI surface instead of the full-screen UI')
     .argument('[prompt...]', 'optional initial prompt; multiple words are joined by spaces')
     .addHelpText('after', `
 Examples:
@@ -53,12 +56,13 @@ Examples:
 export function apply(ctx: Context): void {
   const program = tuiCommand()
   program.action(() => {
-    const opts = program.opts<{ cwd?: string; resume?: string }>()
+    const opts = program.opts<{ cwd?: string; resume?: string; raw?: boolean }>()
     const prompt = program.args.join(' ')
     ctx.provide(TUI_STARTUP_SERVICE, {
       cwd: opts.cwd ?? process.cwd(),
       resume: opts.resume,
       prompt: prompt === '' ? undefined : prompt,
+      raw: opts.raw === true,
     } satisfies TuiStartupValues)
   })
   parseCmdline(ctx, program)
