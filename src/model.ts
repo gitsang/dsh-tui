@@ -18,6 +18,7 @@ export type Entry =
       text: string
       reasoning?: string
       streaming: boolean
+      error?: boolean
     }
   | {
       kind: 'tool'
@@ -128,6 +129,23 @@ export class SessionModel {
     const pending = this.pendingApproval
     this.pendingApproval = null
     pending?.resolve(outcome)
+    this.notify()
+  }
+
+  /** Clear all state (used when switching sessions). */
+  reset(): void {
+    this.entries = []
+    this.todos = []
+    this.turn = 0
+    this.step = 0
+    this.busy = false
+    this.pendingApproval = null
+    this.notify()
+  }
+
+  /** Append a UI-level notice (command output, errors). */
+  addNotice(text: string, error = false): void {
+    this.entries.push({ kind: 'message', id: `m-${this.nextId++}`, role: 'context', text, streaming: false, error })
     this.notify()
   }
 

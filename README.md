@@ -60,10 +60,22 @@ dsh --profile tui --raw                    # plain readline/ANSI instead of the 
 | Input | Action |
 |---|---|
 | any message + Enter | send to the agent |
-| `:help` | show commands |
-| `:quit` / `:q` | exit |
+| `:help` | show a help box |
+| `:quit` / `:q` / `/quit` | exit |
 | `Ctrl-C` | cancel the running turn (or exit when idle) |
 | `y` / `n` | answer a permission prompt (approve / reject) |
+
+### Slash commands
+
+Slash commands dispatch through `ctx.commands`; `dsh-tui` registers its own on top of the ones shipped in `dsh-base`.
+
+| Command | Action |
+|---|---|
+| `/help` | list every registered command |
+| `/sessions` | list persisted sessions (`*` marks the current one) |
+| `/resume <id>` | switch to a persisted session |
+| `/fork` | fork the current session into a new branch and switch to it |
+| `/compact`, `/goal`, `/plan`, `/permission`, … | dsh's built-in commands |
 
 Permission prompts (`ctx.approval`) are answered in-terminal: the TUI registers an `approval/request` answerer and shows a modal. Raw mode has no answerer, so approvals fail closed (`unavailable`).
 
@@ -80,7 +92,7 @@ The dependency surface mirrors the official `@deepseek-ai/dsh-headless` bundle: 
 
 - [x] Phase 0 — minimal interactive readline surface
 - [x] Phase 1 — ink TUI: conversation + tool tree, approval prompts, status bar, `--raw` mode
-- [ ] Phase 2 — session list / resume picker, slash commands via `ctx.commands`, fork
+- [x] Phase 2 — session list / resume, fork, slash commands via `ctx.commands`
 - [ ] Phase 3 — publish `@gitsang/dsh-tui` to npm, add the `dsh-plugin` topic
 
 ## License

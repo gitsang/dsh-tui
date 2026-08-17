@@ -1,12 +1,13 @@
 /**
  * The ink terminal UI: conversation, tool-call tree, approval modal, input
- * line, and status bar, all rendered from a {@link SessionModel}.
+ * line, and status bar, driven by a {@link TuiController}.
  * @module @gitsang/dsh-tui/ui/app
  */
 
 import { useState, useSyncExternalStore } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
-import type { Entry, SessionModel } from '../model.js'
+import type { Entry } from '../model.js'
+import type { TuiController } from '../controller.js'
 
 function truncate(text: string, max: number): string {
   const single = text.replace(/\s+/g, ' ').trim()
@@ -19,7 +20,7 @@ function EntryRow({ entry }: { entry: Entry }) {
       return <Text color="cyanBright">❯ {entry.text}</Text>
     }
     if (entry.role === 'context') {
-      return <Text color="gray">· {entry.text}</Text>
+      return <Text color={entry.error === true ? 'red' : 'gray'}>{entry.error === true ? '✗ ' : '· '}{entry.text}</Text>
     }
     return (
       <Box flexDirection="column">
@@ -51,13 +52,11 @@ function EntryRow({ entry }: { entry: Entry }) {
 }
 
 export interface AppProps {
-  model: SessionModel
-  onSubmit(text: string): void
-  onCancel(): void
-  onQuit(): void
+  controller: TuiController
 }
 
-export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
+export function App({ controller }: AppProps) {
+  const model = controller.model
   const { stdout } = useStdout()
   useSyncExternalStore(model.subscribe, model.getSnapshot)
   const [input, setInput] = useState('')
@@ -65,8 +64,8 @@ export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
 
   useInput((value, key) => {
     if (key.ctrl && value === 'c') {
-      if (model.busy) onCancel()
-      else onQuit()
+      if (model.busy) controller.cancel()
+      else void controller.shutdown(0)
       return
     }
     if (model.pendingApproval !== null) {
@@ -79,16 +78,22 @@ export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
       setInput('')
       setShowHelp(false)
       if (text === '') return
-      if (text === ':q' || text === ':quit' || text === ':exit') {
-        onQuit()
+      if (text === ':q' || text === ':quit' || text === ':exit' || text === '/quit' || text === '/q') {
+        void controller.shutdown(0)
         return
       }
       if (text === ':h' || text === ':help') {
         setShowHelp(true)
         return
       }
+      if (text.startsWith('/')) {
+        void controller.dispatchCommand(text).catch((error: unknown) => {
+          model.addNotice(error instanceof Error ? error.message : String(error), true)
+        })
+        return
+      }
       if (text.startsWith(':')) return
-      onSubmit(text)
+      controller.submit(text)
       return
     }
     if (key.escape) {
@@ -105,7 +110,7 @@ export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
   })
 
   const rows = stdout?.rows ?? 24
-  const reserved = 3 + (model.pendingApproval !== null ? 2 : 0) + (showHelp ? 5 : 0)
+  const reserved = 3 + (model.pendingApproval !== null ? 2 : 0) + (showHelp ? 6 : 0)
   const visible = Math.max(1, rows - reserved)
   const entries = model.entries.slice(-visible)
 
@@ -130,9 +135,12 @@ export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
       {showHelp && (
         <Box borderStyle="round" borderColor="gray" paddingX={1} marginY={1} flexDirection="column">
           <Text dimColor>commands</Text>
-          <Text dimColor>  :help       show this help</Text>
-          <Text dimColor>  :quit, :q   exit</Text>
-          <Text dimColor>  Ctrl-C      cancel the running turn (or exit when idle)</Text>
+          <Text dimColor>  /help        list commands</Text>
+          <Text dimColor>  /sessions    list persisted sessions</Text>
+          <Text dimColor>  /resume SESSION-ID  resume a session</Text>
+          <Text dimColor>  /fork        fork the current session</Text>
+          <Text dimColor>  :quit, :q    exit</Text>
+          <Text dimColor>  Ctrl-C       cancel the running turn (or exit when idle)</Text>
         </Box>
       )}
 
@@ -143,6 +151,7 @@ export function App({ model, onSubmit, onCancel, onQuit }: AppProps) {
 
       <Box>
         <Text dimColor>
+          {controller.sessionId !== undefined ? `session ${String(controller.sessionId).slice(-8)} · ` : ''}
           turn {model.turn}{model.step > 0 ? ` · step ${model.step}` : ''} · {model.busy ? '● running' : '○ idle'}
         </Text>
         {model.todos.length > 0 && (

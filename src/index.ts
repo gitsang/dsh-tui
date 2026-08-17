@@ -1,7 +1,7 @@
 /**
  * @gitsang/dsh-tui — an interactive terminal surface over dsh-base. It mounts
  * no Host, HTTP server, or browser plugins. The surface creates (or resumes)
- * one Agent through the core registry, streams its SessionEvent log into a
+ * an Agent through the core registry, streams its SessionEvent log into a
  * view model, and drives it from either a full-screen ink UI or a plain
  * readline loop (`--raw` / non-TTY).
  * @module @gitsang/dsh-tui
@@ -17,12 +17,11 @@ import { installModelSelection, type AgentHandle, type ModelSelectionRef } from 
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 // Empty type imports carry the loader Context merge for the settlement await
 // and the cmdline Context merge for the appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
-import { SessionModel } from './model.js'
+import { TuiController, type AgentsLike, type SessionsLike, type DefaultModelLike, type PersistenceLike } from './controller.js'
 import { Renderer } from './render.js'
 import { App } from './ui/app.js'
 import { TUI_STARTUP_SERVICE, type TuiStartupValues } from './startup.js'
@@ -73,10 +72,10 @@ export function apply(ctx: Context): void {
   void run(ctx, io).catch((error: unknown) => { fail(io, error) })
 }
 
-interface BootedAgent {
-  agent: AgentHandle['agent']
-  handle: AgentHandle
-  sessions: { flush(session: Session): Promise<unknown> }
+interface RawDeps {
+  agents: AgentsLike
+  defaultModel: DefaultModelLike
+  sessions: SessionsLike
   startup: TuiStartupValues
 }
 
@@ -87,6 +86,7 @@ async function run(ctx: Context, io: TuiIo): Promise<void> {
   const agents = ctx.get('agents')
   const defaultModel = ctx.get('agentDefaultModel')
   const sessions = ctx.get('sessions')
+  const persistence = ctx.get('sessionPersistence')
   const startup = ctx.get(TUI_STARTUP_SERVICE) as TuiStartupValues | undefined
   if (agents === undefined || defaultModel === undefined || sessions === undefined || startup === undefined) {
     io.error.write('dsh: tui-surface: missing core services\n')
@@ -94,6 +94,14 @@ async function run(ctx: Context, io: TuiIo): Promise<void> {
     return
   }
 
+  const useRaw = startup.raw === true || process.stdout.isTTY !== true || process.stdin.isTTY !== true
+  if (useRaw) await runRaw(ctx, io, { agents, defaultModel, sessions, startup })
+  else await runTui(ctx, io, { agents, defaultModel, sessions, persistence, startup })
+}
+
+/** Plain readline + ANSI rendering for `--raw` and non-TTY runs. Approvals fail closed. */
+async function runRaw(ctx: Context, io: TuiIo, deps: RawDeps): Promise<void> {
+  const { agents, defaultModel, sessions, startup } = deps
   const selection = defaultModel.currentSelection()
   const setup = makeSetup(selection)
 
@@ -106,31 +114,20 @@ async function run(ctx: Context, io: TuiIo): Promise<void> {
           agentOptions: { provider: selection.provider, model: selection.model },
           setup,
         })
-      : await agents.resume({
-          resumeSessionId: SessionId(startup.resume),
-          setup,
-        })
+      : await agents.resume({ resumeSessionId: SessionId(startup.resume), setup })
   } catch (error) {
     fail(io, error)
     return
   }
 
-  const booted: BootedAgent = { agent: handle.agent, handle, sessions, startup }
-  await booted.agent.whenIdle()
-
-  const useRaw = startup.raw === true || process.stdout.isTTY !== true || process.stdin.isTTY !== true
-  if (useRaw) await runRaw(ctx, io, booted)
-  else await runTui(ctx, io, booted)
-}
-
-/** Plain readline + ANSI rendering for `--raw` and non-TTY runs. Approvals fail closed. */
-async function runRaw(ctx: Context, io: TuiIo, booted: BootedAgent): Promise<void> {
-  const { agent, handle, sessions, startup } = booted
+  const { agent } = handle
   const renderer = new Renderer(io.output)
 
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (session.id === agent.session.id) renderer.render(event)
   })
+
+  await agent.whenIdle()
 
   const rl = readline.createInterface({ input: io.input, output: io.output, terminal: true })
   let busy = false
@@ -188,47 +185,40 @@ async function runRaw(ctx: Context, io: TuiIo, booted: BootedAgent): Promise<voi
   }
 }
 
-/** Full-screen ink UI with permission prompts. */
-async function runTui(ctx: Context, io: TuiIo, booted: BootedAgent): Promise<void> {
-  const { agent, handle, sessions, startup } = booted
-  const model = new SessionModel()
-
-  ctx.on('session/event', (session: Session, event: SessionEvent) => {
-    if (session.id === agent.session.id) model.apply(event)
-  })
-
-  // Terminal answerer for the approval seam: answer only for the owned agent,
-  // delegate everything else (fail closed).
-  ctx.on('approval/request', (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome> => {
-    if (req.agent !== agent) return next()
-    return model.askApproval({ toolName: req.toolName, reason: req.reason, callId: req.callId })
+/** Full-screen ink UI with permission prompts, slash commands, and session switching. */
+async function runTui(ctx: Context, io: TuiIo, deps: RawDeps & { persistence: PersistenceLike | undefined }): Promise<void> {
+  const controller = new TuiController({
+    ctx,
+    agents: deps.agents,
+    sessions: deps.sessions,
+    defaultModel: deps.defaultModel,
+    persistence: deps.persistence,
+    startup: deps.startup,
   })
 
   let instance: ReturnType<typeof render> | undefined
-
-  const shutdown = async (code: number): Promise<void> => {
-    try {
-      await sessions.flush(agent.session)
-      await handle.dispose()
-    } catch {
-      // Teardown is best-effort; the process is exiting anyway.
+  controller.setOnExit((code) => {
+    // Unmount the ink app first so its stdin/resize listeners are removed and
+    // the terminal is restored. `appExit` only sets process.exitCode (natural
+    // exit), so a lingering listener would otherwise keep the loop alive.
+    const current = instance
+    if (current === undefined) {
+      io.exit(code)
+      return
     }
-    instance?.unmount()
-    io.exit(code)
-  }
+    current.unmount()
+    void current.waitUntilExit().then(() => io.exit(code), () => io.exit(code))
+  })
 
-  const onSubmit = (text: string): void => {
-    agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
-  }
-  const onCancel = (): void => {
-    agent.cancel({ kind: 'user' })
-  }
-  const onQuit = (): void => {
-    void shutdown(0)
+  try {
+    await controller.start()
+  } catch (error) {
+    fail(io, error)
+    return
   }
 
   instance = render(
-    createElement(App, { model, onSubmit, onCancel, onQuit }),
+    createElement(App, { controller }),
     {
       stdout: io.output as NodeJS.WriteStream,
       stdin: io.input as NodeJS.ReadStream,
@@ -236,8 +226,6 @@ async function runTui(ctx: Context, io: TuiIo, booted: BootedAgent): Promise<voi
       exitOnCtrlC: false,
     },
   )
-
-  if (startup.prompt !== undefined) onSubmit(startup.prompt)
 
   await instance.waitUntilExit()
 }
