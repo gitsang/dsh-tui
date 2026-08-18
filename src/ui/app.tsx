@@ -199,7 +199,12 @@ export function App({ controller }: AppProps) {
       <Box flexDirection="column">
         <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
         <Box paddingX={1}>
-          <Text color={THEME.text}>{input === '' ? ' ' : input}</Text>
+          <Text color={THEME.text}>
+            {input}
+            {model.pendingApproval === null
+              ? <Text inverse> </Text>
+              : input === '' ? ' ' : null}
+          </Text>
         </Box>
         <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
       </Box>
