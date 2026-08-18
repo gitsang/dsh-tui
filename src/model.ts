@@ -5,7 +5,7 @@
  * @module @gitsang/dsh-tui/model
  */
 
-import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 
@@ -47,6 +47,20 @@ interface PendingApproval {
   resolve: (outcome: ApprovalOutcome) => void
 }
 
+/** Cumulative token accounting shown in the statusline. */
+export interface TokenTotals {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
+/** Per-message TTFT/TPS and their session averages. */
+export interface TimingStats {
+  ttft: number | null
+  tps: number | null
+}
+
 function blockText(block: ContentBlock): string | undefined {
   return block.type === 'text' || block.type === 'reasoning' ? block.text : undefined
 }
@@ -58,8 +72,14 @@ export class SessionModel {
   step = 0
   busy = false
   pendingApproval: PendingApproval | null = null
+  usage: TokenTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  timing: TimingStats = { ttft: null, tps: null }
 
   private version = 0
+  private ttftHistory: number[] = []
+  private tpsHistory: number[] = []
+  private requestStart: number | null = null
+  private firstToken: number | null = null
   private nextId = 0
   private listeners = new Set<() => void>()
 
@@ -67,6 +87,17 @@ export class SessionModel {
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
+  }
+
+  /** Session-average timing history, for the pi-style statusline. */
+  get timingAvg(): TimingStats {
+    const ttft = this.ttftHistory.length > 0
+      ? this.ttftHistory.reduce((a, b) => a + b, 0) / this.ttftHistory.length
+      : null
+    const tps = this.tpsHistory.length > 0
+      ? this.tpsHistory.reduce((a, b) => a + b, 0) / this.tpsHistory.length
+      : null
+    return { ttft, tps }
   }
 
   /** Monotonic snapshot; components read the mutable fields directly. */
@@ -86,6 +117,8 @@ export class SessionModel {
         return
       case 'step/start':
         this.step = event.data.step
+        this.requestStart = event.time
+        this.firstToken = null
         this.notify()
         return
       case 'turn/end':
@@ -96,10 +129,13 @@ export class SessionModel {
         this.pushUser(event.data.source.kind, event.data.content)
         return
       case 'assistant/chunk':
+        if (event.data.chunk.type === 'text-delta' && this.firstToken === null) this.firstToken = event.time
         this.pushChunk(event.data.chunk)
         return
       case 'assistant/message':
         this.finishStreaming()
+        this.recordUsage(event.data.usage)
+        this.recordTiming(event.data.usage?.outputTokens ?? 0, event.time)
         return
       case 'tool/call':
         this.pushToolCall(event.data.callId, event.data.name, event.data.arguments)
@@ -140,6 +176,12 @@ export class SessionModel {
     this.step = 0
     this.busy = false
     this.pendingApproval = null
+    this.usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+    this.timing = { ttft: null, tps: null }
+    this.ttftHistory = []
+    this.tpsHistory = []
+    this.requestStart = null
+    this.firstToken = null
     this.notify()
   }
 
@@ -159,6 +201,26 @@ export class SessionModel {
       text,
       streaming: false,
     })
+    this.notify()
+  }
+
+  private recordUsage(usage: TokenUsage | undefined): void {
+    if (usage === undefined) return
+    this.usage.input += usage.inputTokens
+    this.usage.output += usage.outputTokens
+    this.usage.cacheRead += usage.cacheReadTokens ?? 0
+    this.usage.cacheWrite += usage.cacheWriteTokens ?? 0
+    this.notify()
+  }
+
+  private recordTiming(outputTokens: number, endTime: number): void {
+    const started = this.requestStart
+    const first = this.firstToken
+    const ttft = started !== null && first !== null ? Math.max(0, first - started) : null
+    const tps = first !== null && outputTokens > 0 && endTime > first ? outputTokens / ((endTime - first) / 1000) : null
+    this.timing = { ttft, tps }
+    if (ttft !== null) this.ttftHistory.push(ttft)
+    if (tps !== null) this.tpsHistory.push(tps)
     this.notify()
   }
 

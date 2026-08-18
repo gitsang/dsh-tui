@@ -1,7 +1,7 @@
 /**
  * The ink terminal UI, styled after the Pi coding agent TUI:
- * dark, low-chroma backgrounds for user messages and tool executions, dim
- * two-line footer (cwd / session + model), and a borderless input band.
+ * dark, low-chroma backgrounds for user messages and tool executions, a
+ * pi-statusline-style Tokyo Night footer, and a borderless input band.
  * @module @gitsang/dsh-tui/ui/app
  */
 
@@ -9,6 +9,7 @@ import { useState, useSyncExternalStore } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { Entry } from '../model.js'
 import type { TuiController } from '../controller.js'
+import { Statusline } from './statusline.js'
 
 /**
  * Palette borrowed from Pi's built-in dark theme so the terminal surface
@@ -153,18 +154,11 @@ export function App({ controller }: AppProps) {
   const approvalLines = model.pendingApproval !== null ? 3 : 0
   const helpLines = showHelp ? 7 : 0
   const inputLines = 3
-  const footerLines = 2
+  const footerLines = 4
   const visible = Math.max(1, rows - inputLines - footerLines - approvalLines - helpLines)
   const entries = model.entries.slice(-visible)
 
   const cwd = compactCwd(controller.cwd)
-  const statusLeft = [
-    `session ${controller.sessionId !== undefined ? String(controller.sessionId).slice(-8) : '—'}`,
-    `turn ${model.turn}${model.step > 0 ? ` · step ${model.step}` : ''}`,
-    model.busy ? '● running' : '○ idle',
-  ].join(' · ')
-  const statusRight = controller.modelLabel
-  const statusPadding = Math.max(2, columns - statusLeft.length - statusRight.length)
 
   return (
     <Box flexDirection="column">
@@ -209,12 +203,13 @@ export function App({ controller }: AppProps) {
         <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
       </Box>
 
-      <Box flexDirection="column">
-        <Text color={THEME.dimGray} wrap="truncate">{cwd}</Text>
-        <Text color={THEME.dimGray} wrap="truncate">
-          {statusLeft}{' '.repeat(statusPadding)}{statusRight}
-        </Text>
-      </Box>
+      <Statusline
+        model={model}
+        sessionId={controller.sessionId}
+        cwd={cwd}
+        modelLabel={controller.modelLabel}
+        columns={columns}
+      />
     </Box>
   )
 }
