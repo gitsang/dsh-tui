@@ -224,9 +224,13 @@ async function runTui(ctx: Context, io: TuiIo, deps: RawDeps & { persistence: Pe
       stdin: io.input as NodeJS.ReadStream,
       stderr: io.error as NodeJS.WriteStream,
       exitOnCtrlC: false,
-      // Enable the kitty keyboard protocol where supported so modifiers on
-      // Enter (Ctrl+Enter in particular) are reported as distinct key events.
-      kittyKeyboard: { mode: 'auto' },
+      // Enable the kitty keyboard protocol so modifiers on Enter (Ctrl+Enter in
+      // particular) are reported as distinct key events. Use `enabled` rather
+      // than `auto` because auto mode sends the `CSI ? u` support query while
+      // Ink's normal `readable` input listener is also active; the terminal's
+      // `CSI ? 0 u` response is then read by both listeners and the normal input
+      // path renders the stray response as `[?0u` in the input box.
+      kittyKeyboard: { mode: 'enabled' },
       // Only rewrite lines that actually changed between frames. The default
       // standard log-update erases and rewrites the whole frame on every
       // model update, which makes streaming output flicker/repaint history.
