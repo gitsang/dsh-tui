@@ -190,8 +190,13 @@ export function App({ controller }: AppProps) {
   // Keep the terminal cursor on the input line. Terminal emulators place the
   // IME candidate window at the real terminal cursor; if left at the bottom of
   // the frame (after the footer), IME candidates appear below the footer.
+  //
+  // Ink renders fullscreen frames without a trailing newline, while its cursor
+  // suffix calculation assumes the cursor starts one line below the last
+  // rendered line. The extra +1 compensates for that assumption so the visible
+  // terminal cursor lands on the input line rather than one line above it.
   const lastInputLine = input.split('\n').at(-1) ?? ''
-  const inputCursorY = visible + approvalLines + helpLines + inputLineCount
+  const inputCursorY = visible + approvalLines + helpLines + inputLineCount + 1
   setCursorPosition({ x: 1 + stringWidth(lastInputLine), y: inputCursorY })
 
   return (
@@ -234,12 +239,7 @@ export function App({ controller }: AppProps) {
       <Box flexDirection="column">
         <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
         <Box paddingX={1}>
-          <Text color={THEME.text}>
-            {input}
-            {model.pendingApproval === null
-              ? <Text inverse> </Text>
-              : input === '' ? ' ' : null}
-          </Text>
+          <Text color={THEME.text}>{input}{' '}</Text>
         </Box>
         <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
       </Box>
