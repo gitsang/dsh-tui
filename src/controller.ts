@@ -112,6 +112,17 @@ export class TuiController {
     return this.current?.agent.session.id
   }
 
+  /** Working directory shown in the pi-style footer. */
+  get cwd(): string {
+    return this.deps.startup.cwd
+  }
+
+  /** Provider/model label shown on the right side of the pi-style footer. */
+  get modelLabel(): string {
+    const selection = this.deps.defaultModel.currentSelection()
+    return `${selection.provider}/${selection.model}`
+  }
+
   setOnExit(onExit: (code: number) => void): void {
     this.onExit = onExit
   }

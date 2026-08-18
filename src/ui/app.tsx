@@ -1,6 +1,7 @@
 /**
- * The ink terminal UI: conversation, tool-call tree, approval modal, input
- * line, and status bar, driven by a {@link TuiController}.
+ * The ink terminal UI, styled after the Pi coding agent TUI:
+ * dark, low-chroma backgrounds for user messages and tool executions, dim
+ * two-line footer (cwd / session + model), and a borderless input band.
  * @module @gitsang/dsh-tui/ui/app
  */
 
@@ -9,43 +10,81 @@ import { Box, Text, useInput, useStdout } from 'ink'
 import type { Entry } from '../model.js'
 import type { TuiController } from '../controller.js'
 
+/**
+ * Palette borrowed from Pi's built-in dark theme so the terminal surface
+ * feels familiar when moving between `pi` and `dsh --profile tui`.
+ */
+const THEME = {
+  text: '#d4d4d4',
+  gray: '#808080',
+  dimGray: '#666666',
+  darkGray: '#505050',
+  userMessageBg: '#343541',
+  toolPendingBg: '#282832',
+  toolSuccessBg: '#283228',
+  toolErrorBg: '#3c2828',
+  accent: '#8abeb7',
+  warning: '#ffff00',
+  error: '#cc6666',
+  success: '#b5bd68',
+} as const
+
 function truncate(text: string, max: number): string {
   const single = text.replace(/\s+/g, ' ').trim()
   return single.length <= max ? single : `${single.slice(0, max)}…`
 }
 
+/** Replace the home directory with `~` for a compact footer cwd. */
+function compactCwd(cwd: string): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  if (home !== undefined && (cwd === home || cwd.startsWith(`${home}/`))) {
+    return `~${cwd.slice(home.length)}`
+  }
+  return cwd
+}
+
 function EntryRow({ entry }: { entry: Entry }) {
   if (entry.kind === 'message') {
     if (entry.role === 'user') {
-      return <Text color="cyanBright">❯ {entry.text}</Text>
+      return (
+        <Box backgroundColor={THEME.userMessageBg} paddingX={1} paddingY={1}>
+          <Text color={THEME.text}>{entry.text}</Text>
+        </Box>
+      )
     }
     if (entry.role === 'context') {
-      return <Text color={entry.error === true ? 'red' : 'gray'}>{entry.error === true ? '✗ ' : '· '}{entry.text}</Text>
+      return (
+        <Text color={entry.error === true ? THEME.error : THEME.gray}>
+          {entry.error === true ? '✗ ' : '· '}
+          {entry.text}
+        </Text>
+      )
     }
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" paddingX={1}>
         {entry.reasoning !== undefined && entry.reasoning !== '' && (
-          <Text color="gray" dimColor>{entry.reasoning}</Text>
+          <Text italic color={THEME.gray}>{entry.reasoning}</Text>
         )}
-        <Text color="green">{entry.text}{entry.streaming ? ' ▌' : ''}</Text>
+        <Text color={THEME.text}>{entry.text}{entry.streaming ? ' ▌' : ''}</Text>
       </Box>
     )
   }
 
-  const mark = entry.status === 'running' ? '…' : entry.status === 'error' ? '✗' : '✓'
-  const markColor = entry.status === 'error' ? 'red' : entry.status === 'done' ? 'green' : 'yellow'
+  const background = entry.status === 'running'
+    ? THEME.toolPendingBg
+    : entry.status === 'error' ? THEME.toolErrorBg : THEME.toolSuccessBg
+
   return (
-    <Box flexDirection="column">
+    <Box backgroundColor={background} paddingX={1} paddingY={1} flexDirection="column">
       <Text>
-        <Text color="yellow">⚙ {entry.name}</Text>
-        <Text color={markColor}> {mark}</Text>
-        <Text color="gray"> {truncate(entry.args, 80)}</Text>
+        <Text color={THEME.text} bold>{entry.name}</Text>
+        <Text color={THEME.gray}> {truncate(entry.args, 120)}</Text>
       </Text>
       {entry.status === 'error' && entry.errorCode !== undefined && (
-        <Text color="red">  ↳ error: {entry.errorCode}</Text>
+        <Text color={THEME.error}>  ↳ error: {entry.errorCode}</Text>
       )}
       {entry.status === 'done' && entry.result !== undefined && entry.result !== '' && (
-        <Text color="gray">  ↳ {truncate(entry.result, 120)}</Text>
+        <Text color={THEME.gray}>  ↳ {truncate(entry.result, 160)}</Text>
       )}
     </Box>
   )
@@ -109,10 +148,23 @@ export function App({ controller }: AppProps) {
     if (value !== '' && !key.ctrl && !key.meta) setInput((prev) => prev + value)
   })
 
+  const columns = stdout?.columns ?? 80
   const rows = stdout?.rows ?? 24
-  const reserved = 3 + (model.pendingApproval !== null ? 2 : 0) + (showHelp ? 6 : 0)
-  const visible = Math.max(1, rows - reserved)
+  const approvalLines = model.pendingApproval !== null ? 3 : 0
+  const helpLines = showHelp ? 7 : 0
+  const inputLines = 3
+  const footerLines = 2
+  const visible = Math.max(1, rows - inputLines - footerLines - approvalLines - helpLines)
   const entries = model.entries.slice(-visible)
+
+  const cwd = compactCwd(controller.cwd)
+  const statusLeft = [
+    `session ${controller.sessionId !== undefined ? String(controller.sessionId).slice(-8) : '—'}`,
+    `turn ${model.turn}${model.step > 0 ? ` · step ${model.step}` : ''}`,
+    model.busy ? '● running' : '○ idle',
+  ].join(' · ')
+  const statusRight = controller.modelLabel
+  const statusPadding = Math.max(2, columns - statusLeft.length - statusRight.length)
 
   return (
     <Box flexDirection="column">
@@ -123,42 +175,40 @@ export function App({ controller }: AppProps) {
       </Box>
 
       {model.pendingApproval !== null && (
-        <Box borderStyle="round" borderColor="yellow" paddingX={1} marginY={1}>
-          <Text color="yellow" bold>⚠ approve {model.pendingApproval.prompt.toolName}?</Text>
+        <Box borderStyle="round" borderColor={THEME.warning} paddingX={1} marginY={1}>
+          <Text color={THEME.warning} bold>⚠ approve {model.pendingApproval.prompt.toolName}?</Text>
           {model.pendingApproval.prompt.reason !== undefined && (
-            <Text color="gray"> {model.pendingApproval.prompt.reason}</Text>
+            <Text color={THEME.gray}> {model.pendingApproval.prompt.reason}</Text>
           )}
-          <Text> [y/N]</Text>
+          <Text color={THEME.text}> [y/N]</Text>
         </Box>
       )}
 
       {showHelp && (
-        <Box borderStyle="round" borderColor="gray" paddingX={1} marginY={1} flexDirection="column">
-          <Text dimColor>commands</Text>
-          <Text dimColor>  /help        list commands</Text>
-          <Text dimColor>  /sessions    list persisted sessions</Text>
-          <Text dimColor>  /resume SESSION-ID  resume a session</Text>
-          <Text dimColor>  /fork        fork the current session</Text>
-          <Text dimColor>  :quit, :q    exit</Text>
-          <Text dimColor>  Ctrl-C       cancel the running turn (or exit when idle)</Text>
+        <Box borderStyle="round" borderColor={THEME.darkGray} paddingX={1} marginY={1} flexDirection="column">
+          <Text color={THEME.dimGray}>commands</Text>
+          <Text color={THEME.dimGray}>  /help        list commands</Text>
+          <Text color={THEME.dimGray}>  /sessions    list persisted sessions</Text>
+          <Text color={THEME.dimGray}>  /resume SESSION-ID  resume a session</Text>
+          <Text color={THEME.dimGray}>  /fork        fork the current session</Text>
+          <Text color={THEME.dimGray}>  :quit, :q    exit</Text>
+          <Text color={THEME.dimGray}>  Ctrl-C       cancel the running turn (or exit when idle)</Text>
         </Box>
       )}
 
-      <Box>
-        <Text color="cyanBright">❯ </Text>
-        <Text>{input}</Text>
+      <Box flexDirection="column">
+        <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
+        <Box paddingX={1}>
+          <Text color={THEME.text}>{input === '' ? ' ' : input}</Text>
+        </Box>
+        <Text color={THEME.darkGray}>{'─'.repeat(Math.max(0, columns - 1))}</Text>
       </Box>
 
-      <Box>
-        <Text dimColor>
-          {controller.sessionId !== undefined ? `session ${String(controller.sessionId).slice(-8)} · ` : ''}
-          turn {model.turn}{model.step > 0 ? ` · step ${model.step}` : ''} · {model.busy ? '● running' : '○ idle'}
+      <Box flexDirection="column">
+        <Text color={THEME.dimGray} wrap="truncate">{cwd}</Text>
+        <Text color={THEME.dimGray} wrap="truncate">
+          {statusLeft}{' '.repeat(statusPadding)}{statusRight}
         </Text>
-        {model.todos.length > 0 && (
-          <Text dimColor>
-            {' '}· todo {model.todos.filter((todo) => todo.status === 'completed').length}/{model.todos.length}
-          </Text>
-        )}
       </Box>
     </Box>
   )
