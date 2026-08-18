@@ -6,7 +6,8 @@
  */
 
 import { useState, useSyncExternalStore } from 'react'
-import { Box, Text, useInput, useStdout, type Key } from 'ink'
+import { Box, Text, useCursor, useInput, useStdout, type Key } from 'ink'
+import stringWidth from 'string-width'
 import type { Entry } from '../model.js'
 import type { TuiController } from '../controller.js'
 import { STATUSLINE_CONFIG } from './config.js'
@@ -118,6 +119,7 @@ export interface AppProps {
 export function App({ controller }: AppProps) {
   const model = controller.model
   const { stdout } = useStdout()
+  const { setCursorPosition } = useCursor()
   useSyncExternalStore(model.subscribe, model.getSnapshot)
   const [input, setInput] = useState('')
   const [showHelp, setShowHelp] = useState(false)
@@ -184,6 +186,13 @@ export function App({ controller }: AppProps) {
   const entries = model.entries.slice(-visible)
 
   const cwd = compactCwd(controller.cwd)
+
+  // Keep the terminal cursor on the input line. Terminal emulators place the
+  // IME candidate window at the real terminal cursor; if left at the bottom of
+  // the frame (after the footer), IME candidates appear below the footer.
+  const lastInputLine = input.split('\n').at(-1) ?? ''
+  const inputCursorY = visible + approvalLines + helpLines + inputLineCount
+  setCursorPosition({ x: 1 + stringWidth(lastInputLine), y: inputCursorY })
 
   return (
     <Box flexDirection="column">
