@@ -15,6 +15,7 @@ const PRICING = STATUSLINE_CONFIG.pricing
 /** Tokyo Night palette used by pi-statusline. */
 const P = {
   fg: '#c0caf5',
+  white: '#ffffff',
   comment: '#565f89',
   dark5: '#737aa2',
   blue: '#7aa2f7',
@@ -85,10 +86,10 @@ function contextPercent(model: SessionModel, contextWindow: number): number | nu
 }
 
 function contextBarColor(pct: number | null): string {
-  if (pct === null) return P.green
+  if (pct === null) return P.white
   if (pct >= 80) return P.red
   if (pct >= 50) return P.yellow
-  return P.green
+  return P.white
 }
 
 function contextBar(pct: number | null): string {
@@ -155,10 +156,7 @@ export function Statusline({ model, sessionId, cwd, modelLabel, contextWindow, c
           <Text color={P.orange}>{ICONS.cost} ${cost.toFixed(3)}</Text>
         </Text>
         <Text>
-          <Text color={P.comment}>ctx [</Text>
-          <Text color={barColor}>{bar}</Text>
-          <Text color={P.comment}>] </Text>
-          <Text color={barColor}>{fmtPct(ctxPct)}</Text>
+          <Text color={barColor}>[{bar}] {fmtPct(ctxPct)}</Text>
           <Text color={P.comment}> {ctxNums}</Text>
         </Text>
       </Box>
@@ -169,9 +167,6 @@ export function Statusline({ model, sessionId, cwd, modelLabel, contextWindow, c
           <Text color={P.comment}>  </Text>
           <Text color={P.cyan}>speed {fmtTps1(avg.tps)}</Text>
         </Text>
-      </Box>
-
-      <Box width={columns} justifyContent="space-between" flexDirection="row">
         <Text color={P.comment}>turn {model.turn}{stepLabel}</Text>
       </Box>
     </Box>
