@@ -224,6 +224,9 @@ async function runTui(ctx: Context, io: TuiIo, deps: RawDeps & { persistence: Pe
       stdin: io.input as NodeJS.ReadStream,
       stderr: io.error as NodeJS.WriteStream,
       exitOnCtrlC: false,
+      // Enable the kitty keyboard protocol where supported so modifiers on
+      // Enter (Ctrl+Enter in particular) are reported as distinct key events.
+      kittyKeyboard: { mode: 'auto' },
       // Only rewrite lines that actually changed between frames. The default
       // standard log-update erases and rewrites the whole frame on every
       // model update, which makes streaming output flicker/repaint history.

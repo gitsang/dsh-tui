@@ -124,6 +124,29 @@ export function App({ controller }: AppProps) {
   const [input, setInput] = useState('')
   const [showHelp, setShowHelp] = useState(false)
 
+  const submitInput = () => {
+    const text = input.trim()
+    setInput('')
+    setShowHelp(false)
+    if (text === '') return
+    if (text === ':q' || text === ':quit' || text === ':exit' || text === '/quit' || text === '/q') {
+      void controller.shutdown(0)
+      return
+    }
+    if (text === ':h' || text === ':help') {
+      setShowHelp(true)
+      return
+    }
+    if (text.startsWith('/')) {
+      void controller.dispatchCommand(text).catch((error: unknown) => {
+        model.addNotice(error instanceof Error ? error.message : String(error), true)
+      })
+      return
+    }
+    if (text.startsWith(':')) return
+    controller.submit(text)
+  }
+
   useInput((value, key) => {
     if (key.ctrl && value === 'c') {
       if (model.busy) controller.cancel()
@@ -135,27 +158,8 @@ export function App({ controller }: AppProps) {
       else if (value === 'n' || value === 'N' || key.return) model.answerApproval('rejected')
       return
     }
-    if (matchesHotkey(key, STATUSLINE_CONFIG.keys.send)) {
-      const text = input.trim()
-      setInput('')
-      setShowHelp(false)
-      if (text === '') return
-      if (text === ':q' || text === ':quit' || text === ':exit' || text === '/quit' || text === '/q') {
-        void controller.shutdown(0)
-        return
-      }
-      if (text === ':h' || text === ':help') {
-        setShowHelp(true)
-        return
-      }
-      if (text.startsWith('/')) {
-        void controller.dispatchCommand(text).catch((error: unknown) => {
-          model.addNotice(error instanceof Error ? error.message : String(error), true)
-        })
-        return
-      }
-      if (text.startsWith(':')) return
-      controller.submit(text)
+    if (matchesHotkey(key, STATUSLINE_CONFIG.keys.send) || (key.ctrl && value === 's')) {
+      submitInput()
       return
     }
     if (matchesHotkey(key, STATUSLINE_CONFIG.keys.newline)) {
