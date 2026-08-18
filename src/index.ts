@@ -224,6 +224,10 @@ async function runTui(ctx: Context, io: TuiIo, deps: RawDeps & { persistence: Pe
       stdin: io.input as NodeJS.ReadStream,
       stderr: io.error as NodeJS.WriteStream,
       exitOnCtrlC: false,
+      // Only rewrite lines that actually changed between frames. The default
+      // standard log-update erases and rewrites the whole frame on every
+      // model update, which makes streaming output flicker/repaint history.
+      incrementalRendering: true,
     },
   )
 

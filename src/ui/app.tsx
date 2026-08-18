@@ -6,9 +6,10 @@
  */
 
 import { useState, useSyncExternalStore } from 'react'
-import { Box, Text, useInput, useStdout } from 'ink'
+import { Box, Text, useInput, useStdout, type Key } from 'ink'
 import type { Entry } from '../model.js'
 import type { TuiController } from '../controller.js'
+import { STATUSLINE_CONFIG } from './config.js'
 import { Statusline } from './statusline.js'
 
 /**
@@ -33,6 +34,25 @@ const THEME = {
 function truncate(text: string, max: number): string {
   const single = text.replace(/\s+/g, ' ').trim()
   return single.length <= max ? single : `${single.slice(0, max)}…`
+}
+
+function matchesHotkey(key: Key, binding: string): boolean {
+  const parts = binding.toLowerCase().split('+').map((part) => part.trim()).filter(Boolean)
+  const ctrl = parts.includes('ctrl')
+  const meta = parts.includes('meta')
+  const shift = parts.includes('shift')
+  if (key.ctrl !== ctrl || key.meta !== meta || key.shift !== shift) return false
+  const keyName = parts.find((part) => part !== 'ctrl' && part !== 'meta' && part !== 'shift') ?? ''
+  if (keyName === 'return' || keyName === 'enter') return key.return
+  if (keyName === 'escape') return key.escape
+  if (keyName === 'backspace') return key.backspace
+  if (keyName === 'delete') return key.delete
+  if (keyName === 'tab') return key.tab
+  if (keyName === 'up') return key.upArrow
+  if (keyName === 'down') return key.downArrow
+  if (keyName === 'left') return key.leftArrow
+  if (keyName === 'right') return key.rightArrow
+  return false
 }
 
 /** Replace the home directory with `~` for a compact footer cwd. */
@@ -113,7 +133,7 @@ export function App({ controller }: AppProps) {
       else if (value === 'n' || value === 'N' || key.return) model.answerApproval('rejected')
       return
     }
-    if (key.return) {
+    if (matchesHotkey(key, STATUSLINE_CONFIG.keys.send)) {
       const text = input.trim()
       setInput('')
       setShowHelp(false)
@@ -136,6 +156,10 @@ export function App({ controller }: AppProps) {
       controller.submit(text)
       return
     }
+    if (matchesHotkey(key, STATUSLINE_CONFIG.keys.newline)) {
+      setInput((prev) => prev + '\n')
+      return
+    }
     if (key.escape) {
       setInput('')
       return
@@ -153,8 +177,9 @@ export function App({ controller }: AppProps) {
   const rows = stdout?.rows ?? 24
   const approvalLines = model.pendingApproval !== null ? 3 : 0
   const helpLines = showHelp ? 7 : 0
-  const inputLines = 3
-  const footerLines = 4
+  const inputLineCount = Math.max(1, input.split('\n').length)
+  const inputLines = inputLineCount + 2
+  const footerLines = 5
   const visible = Math.max(1, rows - inputLines - footerLines - approvalLines - helpLines)
   const entries = model.entries.slice(-visible)
 
@@ -162,9 +187,16 @@ export function App({ controller }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Box flexDirection="column">
+      <Box
+        flexDirection="column"
+        height={visible}
+        overflowY="hidden"
+        justifyContent={entries.length >= visible ? 'flex-end' : 'flex-start'}
+      >
         {entries.map((entry) => (
-          <EntryRow key={entry.kind === 'message' ? entry.id : entry.callId} entry={entry} />
+          <Box key={entry.kind === 'message' ? entry.id : entry.callId} flexShrink={0} flexDirection="column">
+            <EntryRow entry={entry} />
+          </Box>
         ))}
       </Box>
 
