@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection, type AgentHandle, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandDescriptor, CommandExecution } from '@deepseek-ai/dsh-commands'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { SessionModel } from './model.js'
@@ -39,6 +39,51 @@ export interface TuiControllerDeps {
   defaultModel: DefaultModelLike
   persistence?: PersistenceLike
   startup: TuiStartupValues
+}
+
+interface SettingsServiceLike {
+  get(ns: string): unknown
+}
+
+interface LlmServiceLike {
+  listConfigurableProviders(): LlmConfigurableProvider[]
+}
+
+function settingsValueAt(value: unknown, path: readonly string[]): unknown {
+  let current = value
+  for (const segment of path) {
+    if (typeof current !== 'object' || current === null) return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+/**
+ * Read the current model's context window from the mounted dsh settings
+ * document (settings.yaml). The llm service tells us which settings namespace
+ * and path holds the provider profile, so this works without hard-coding the
+ * pi-ai namespace.
+ */
+function readContextWindow(ctx: Context, provider: string, model: string): number | undefined {
+  const settings = ctx.get('settings') as SettingsServiceLike | undefined
+  const llm = ctx.get('llm') as LlmServiceLike | undefined
+  if (settings === undefined || llm === undefined) return undefined
+  for (const entry of llm.listConfigurableProviders()) {
+    if (entry.provider !== provider) continue
+    const section = settings.get(entry.settingsNs)
+    const profile = entry.settingsPath.length === 0 ? section : settingsValueAt(section, entry.settingsPath)
+    if (typeof profile !== 'object' || profile === null) continue
+    const models = (profile as Record<string, unknown>).models
+    if (!Array.isArray(models)) continue
+    for (const modelInfo of models) {
+      if (typeof modelInfo !== 'object' || modelInfo === null) continue
+      const candidate = modelInfo as Record<string, unknown>
+      if (candidate.id === model && typeof candidate.contextWindow === 'number') {
+        return candidate.contextWindow
+      }
+    }
+  }
+  return undefined
 }
 
 /** The completed-turn prefix of a session: every event through the last `turn/end`. */
@@ -121,6 +166,12 @@ export class TuiController {
   get modelLabel(): string {
     const selection = this.deps.defaultModel.currentSelection()
     return `${selection.provider}/${selection.model}`
+  }
+
+  /** Context window of the current model, read from settings.yaml when available. */
+  get contextWindow(): number | undefined {
+    const selection = this.deps.defaultModel.currentSelection()
+    return readContextWindow(this.deps.ctx, selection.provider, selection.model)
   }
 
   setOnExit(onExit: (code: number) => void): void {

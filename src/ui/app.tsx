@@ -190,6 +190,7 @@ export function App({ controller }: AppProps) {
   const entries = model.entries.slice(-visible)
 
   const cwd = compactCwd(controller.cwd)
+  const contextWindow = controller.contextWindow ?? STATUSLINE_CONFIG.contextWindow
 
   // Keep the terminal cursor on the input line. Terminal emulators place the
   // IME candidate window at the real terminal cursor; if left at the bottom of
@@ -205,11 +206,16 @@ export function App({ controller }: AppProps) {
 
   return (
     <Box flexDirection="column">
+      {/* Always pin entries to the bottom of the fixed-height viewport. A single long
+          streaming message can wrap past `visible` lines while `entries.length` is still
+          small; flex-start would lay that overflowing child from the top and Ink would
+          clip its tail, so the view would stay stuck on the head. flex-end keeps the
+          latest/overflowing lines visible. */}
       <Box
         flexDirection="column"
         height={visible}
         overflowY="hidden"
-        justifyContent={entries.length >= visible ? 'flex-end' : 'flex-start'}
+        justifyContent="flex-end"
       >
         {entries.map((entry) => (
           <Box key={entry.kind === 'message' ? entry.id : entry.callId} flexShrink={0} flexDirection="column">
@@ -253,6 +259,7 @@ export function App({ controller }: AppProps) {
         sessionId={controller.sessionId}
         cwd={cwd}
         modelLabel={controller.modelLabel}
+        contextWindow={contextWindow}
         columns={columns}
       />
     </Box>

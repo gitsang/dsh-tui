@@ -42,7 +42,7 @@ export interface DshTuiConfig {
   icons: StatuslineIconConfig
   keys: HotkeysConfig
   pricing: PricingConfig
-  /** Model context window used by the statusline ctx bar/pct/nums. */
+  /** Fallback model context window when settings.yaml does not provide one. */
   contextWindow: number
 }
 
@@ -76,7 +76,7 @@ export const DEFAULT_PRICING: PricingConfig = {
   cacheWrite: 0.27,
 }
 
-/** Default context window; override per model in the statusline config. */
+/** Fallback context window when the dsh settings document has no value. */
 export const DEFAULT_CONTEXT_WINDOW = 65536
 
 function configPath(): string | undefined {

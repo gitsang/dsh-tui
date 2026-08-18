@@ -11,7 +11,6 @@ import { STATUSLINE_CONFIG } from './config.js'
 
 const ICONS = STATUSLINE_CONFIG.icons
 const PRICING = STATUSLINE_CONFIG.pricing
-const CONTEXT_WINDOW = STATUSLINE_CONFIG.contextWindow
 
 /** Tokyo Night palette used by pi-statusline. */
 const P = {
@@ -80,9 +79,9 @@ function contextTokens(model: SessionModel): number {
   return model.usage.input + model.usage.output + model.usage.cacheRead + model.usage.cacheWrite
 }
 
-function contextPercent(model: SessionModel): number | null {
-  if (CONTEXT_WINDOW <= 0) return null
-  return Math.min(100, (contextTokens(model) / CONTEXT_WINDOW) * 100)
+function contextPercent(model: SessionModel, contextWindow: number): number | null {
+  if (contextWindow <= 0) return null
+  return Math.min(100, (contextTokens(model) / contextWindow) * 100)
 }
 
 function contextBarColor(pct: number | null): string {
@@ -103,10 +102,11 @@ export interface StatuslineProps {
   sessionId: string | undefined
   cwd: string
   modelLabel: string
+  contextWindow: number
   columns: number
 }
 
-export function Statusline({ model, sessionId, cwd, modelLabel, columns }: StatuslineProps) {
+export function Statusline({ model, sessionId, cwd, modelLabel, contextWindow, columns }: StatuslineProps) {
   const state = model.busy ? 'gen' : 'idle'
   const stateColor = state === 'gen' ? P.cyan : P.comment
   const stateIcon = state === 'gen' ? ICONS.stateGen : ICONS.stateIdle
@@ -118,8 +118,8 @@ export function Statusline({ model, sessionId, cwd, modelLabel, columns }: Statu
   const cacheHit = fmtPct(cacheHitPercent(model))
   const cost = costDollars(model)
 
-  const ctxPct = contextPercent(model)
-  const ctxNums = `${fmtTok(contextTokens(model))}/${fmtTok(CONTEXT_WINDOW)}`
+  const ctxPct = contextPercent(model, contextWindow)
+  const ctxNums = `${fmtTok(contextTokens(model))}/${fmtTok(contextWindow)}`
   const barColor = contextBarColor(ctxPct)
   const bar = contextBar(ctxPct)
 
